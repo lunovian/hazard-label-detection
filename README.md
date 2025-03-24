@@ -1,16 +1,16 @@
-# GHS Hazard Label Dataset Collection Tool
+# GHS Hazard Label Detection Application
 
-A Python tool for collecting and balancing GHS (Globally Harmonized System) hazard label image datasets.
+A real-time application for detecting and tracking Globally Harmonized System (GHS) hazard labels using computer vision.
 
 ## Features
 
-- Automated collection of GHS hazard label images from multiple sources
-- Image validation and duplicate detection
-- Configurable target counts for each hazard class
-- Rate limiting to respect source websites
-- Progress tracking and logging
+- **Real-time Detection**: Identify GHS hazard labels in camera feeds with YOLO-based detection
+- **Object Tracking**: Track detected hazard labels across video frames
+- **Multi-Platform**: Works on Windows, macOS, and Linux
+- **Camera Support**: Compatible with webcams, IP cameras, and video files
+- **Export Capabilities**: Save screenshots and detection results to CSV
 
-## Setup
+## Installation
 
 1. Clone the repository:
 ```bash
@@ -29,83 +29,89 @@ source venv/bin/activate  # On Windows: .\venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. Install Chrome WebDriver for Selenium.
+## Running the Application
 
-## Usage
+The application requires a YOLO model for detection. You can use the provided script to download a sample model:
 
-1. Configure target counts and search terms in `src/config/scraping_config.py`
-2. Run the collection script:
 ```bash
-python src/main.py
+python download_sample_model.py
 ```
 
-## Running the Detection Application
+### Start the Application
 
-The project includes a real-time hazard label detection application using YOLO and PyQt6.
-
-### Prerequisites
-
-1. Install all required dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-2. Prepare a YOLO model:
-   - Place a trained YOLO model file (*.pt) in the `models/` directory
-   - By default, the application looks for `models/hazard_yolov8n.pt`
-   - You can also load a custom model through the application interface
-
-### Launch the Application
-
-#### Windows
-Double-click on `run.bat` or run from the command line:
 ```bash
 python src/app.py
 ```
 
-#### macOS/Linux
-Run from the terminal:
-```bash
-python src/app.py
-```
+### Using the Detection Interface
 
-### Using the Application
+1. **Camera Controls**:
+   - Select a camera from the dropdown menu
+   - Choose resolution and FPS settings
+   - Click "Start Camera" to begin the video feed
 
-1. Click "Start Camera" to begin capturing from your webcam
-2. Adjust detection parameters as needed:
-   - Confidence threshold: Controls detection sensitivity
-   - IoU threshold: Controls overlap handling for multiple detections
-   - Enable/disable tracking as needed
-3. Use the File menu to:
-   - Load a custom model
-   - Take screenshots
-   - Export detection results
+2. **Model Selection**:
+   - Select a model from the dropdown or use "Load Model From File..."
+   - The application will look for models in the `models/` directory
 
-## Project Structure
+3. **Detection Settings**:
+   - Adjust confidence threshold to control detection sensitivity
+   - Modify IoU threshold for overlapping detection handling 
+   - Toggle tracking on/off as needed
+
+4. **Results and Export**:
+   - View detected hazard labels in the results table
+   - Take screenshots or export detection data using the File menu
+
+## Supported GHS Hazard Label Classes
+
+The application can detect the following GHS hazard pictograms (dependent on your trained model):
+
+- Explosive (GHS01)
+- Flammable (GHS02)
+- Oxidizing (GHS03)
+- Compressed Gas (GHS04)
+- Corrosive (GHS05)
+- Toxic (GHS06)
+- Harmful/Irritant (GHS07)
+- Health Hazard (GHS08)
+- Environmental Hazard (GHS09)
+
+## Troubleshooting
+
+### Camera Issues
+- If your camera doesn't appear in the list, click the refresh button
+- Try different backend options in the dropdown
+- For IP cameras, select "IP/URL Camera" and enter the RTSP/HTTP URL
+
+### Detection Problems
+- Ensure proper lighting for better label recognition
+- Adjust the confidence threshold slider if detection is too sensitive/not sensitive enough
+- Try different model files if certain hazard types aren't being detected
+
+## Development
+
+This project uses:
+- PyQt6 for the user interface
+- Ultralytics YOLOv8 for object detection
+- Supervision for tracking and visualization
+
+### Project Structure
 
 ```
 hazard-label-dataset/
+├── models/               # YOLO model files (.pt)
+├── output/               # Screenshots and exported data
 ├── src/
-│   ├── config/
-│   │   └── scraping_config.py
-│   ├── scrapers/
-│   │   ├── base_scraper.py
-│   │   └── google_scraper.py
-│   ├── processors/
-│   │   └── image_processor.py
-│   └── main.py
-├── downloaded_images/
-├── requirements.txt
-└── README.md
+│   ├── app/
+│   │   ├── controllers/  # Application logic
+│   │   ├── models/       # Data handling
+│   │   ├── utils/        # Helper utilities
+│   │   └── views/        # UI components
+│   └── app.py            # Entry point
+├── requirements.txt      # Dependencies
+└── download_sample_model.py  # Utility script
 ```
-
-## Configuration
-
-Modify `src/config/scraping_config.py` to:
-- Adjust target counts for each class
-- Set image size constraints
-- Configure rate limiting
-- Add search terms for each class
 
 ## License
 
