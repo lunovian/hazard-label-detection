@@ -1,0 +1,21 @@
+Class Name,Total Count,Training Count,Validation Count,Test Count
+2.2_non_flammable_non_toxic_gases,1505,1044,312,149
+6.1_toxic_substances,1374,979,266,129
+3_flammable_liquids,1140,777,236,127
+5.1_oxidizers,853,608,159,86
+8_corrosive_substances,816,552,173,91
+7_radioactive_materials,807,586,156,65
+4.1_flammable_solids,758,517,173,68
+4.3_dangerous_when_wet_substances,727,487,162,78
+2.1_flammable_gases,686,488,135,63
+5.2_organic_peroxides,630,452,127,51
+4.2_spontaneously_combustible_substances,630,434,137,59
+6.2_infectious_substances,607,397,145,65
+1.5_very_insensitive_substances_with_mass_explosion_hazard,562,393,119,50
+1.4_minor_explosion_hazard,337,235,69,33
+1.1_mass_explosion_hazard,282,202,55,25
+9_miscellaneous_dangerous_goods,235,152,46,37
+1.2_projection_hazard,133,91,30,12
+1.3_fire_and_minor_blast_or_projection_hazard,113,80,22,11
+1.6_extremely_insensitive_articles_with_no_mass_explosion_hazard,70,44,16,10
+2.3_toxic_gases,66,47,8,11

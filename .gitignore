@@ -1,0 +1,4 @@
+*.pyc
+/downloaded_images
+/data
+*.pt
