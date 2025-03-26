@@ -10,13 +10,17 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QSpinBox,
     QProgressBar,
+    QSizePolicy,
+    QFormLayout,
+    QTabWidget,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from ..models.camera_model import CameraInfo, CameraBackend
+from .input_panels import LiveCameraPanel, ImageInputPanel, VideoInputPanel
 
 
 class ControlsPanel(QWidget):
-    """Panel for camera and detection controls"""
+    """Panel for camera and detection controls with tabbed interface"""
 
     # Define signals
     camera_start_clicked = pyqtSignal()
@@ -33,163 +37,29 @@ class ControlsPanel(QWidget):
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout(self)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # Create camera controls group
-        self.camera_group = QGroupBox("Camera Controls")
-        camera_layout = QVBoxLayout()
+        # Create tab widget first
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setProperty("mainTabs", True)  # For styling
 
-        # Camera selection
-        camera_select_layout = QHBoxLayout()
-        camera_select_layout.addWidget(QLabel("Camera:"))
-        self.camera_selector = QComboBox()
-        self.camera_selector.addItem("Default Camera", 0)
-        camera_select_layout.addWidget(self.camera_selector)
+        # Create input panels
+        self.camera_panel = LiveCameraPanel()
+        self.image_panel = ImageInputPanel()
+        self.video_panel = VideoInputPanel()
 
-        # Add refresh button
-        self.refresh_camera_button = QPushButton("🔄")
-        self.refresh_camera_button.setToolTip("Refresh camera list")
-        self.refresh_camera_button.setMaximumWidth(30)
-        camera_select_layout.addWidget(self.refresh_camera_button)
+        # Add tabs
+        self.tab_widget.addTab(self.camera_panel, "Live Camera")
+        self.tab_widget.addTab(self.image_panel, "Image Input")
+        self.tab_widget.addTab(self.video_panel, "Video Input")
 
-        camera_layout.addLayout(camera_select_layout)
+        # Add tab widget to layout
+        self.layout.addWidget(self.tab_widget)
 
-        # Camera backend selection
-        backend_layout = QHBoxLayout()
-        backend_layout.addWidget(QLabel("Backend:"))
-        self.backend_selector = QComboBox()
-        self.backend_selector.addItem("Auto/Default", CameraBackend.ANY)
-        self.backend_selector.addItem("DirectShow (Windows)", CameraBackend.DSHOW)
-        self.backend_selector.addItem("Media Foundation (Windows)", CameraBackend.MSMF)
-        # Fix: Changed V4 to V4L to match the correct enum value
-        self.backend_selector.addItem("V4L2 (Linux)", CameraBackend.V4L)
-        self.backend_selector.addItem("GStreamer", CameraBackend.GSTREAMER)
-        backend_layout.addWidget(self.backend_selector)
-        camera_layout.addLayout(backend_layout)
+        # Create shared control groups
+        self._create_shared_controls()
 
-        # Resolution selection
-        resolution_layout = QHBoxLayout()
-        resolution_layout.addWidget(QLabel("Resolution:"))
-        self.resolution_selector = QComboBox()
-        self.resolution_selector.addItem("640x480", (640, 480))
-        self.resolution_selector.addItem("800x600", (800, 600))
-        self.resolution_selector.addItem("1280x720", (1280, 720))
-        self.resolution_selector.addItem("1920x1080", (1920, 1080))
-        resolution_layout.addWidget(self.resolution_selector)
-        camera_layout.addLayout(resolution_layout)
-
-        # FPS control
-        fps_layout = QHBoxLayout()
-        fps_layout.addWidget(QLabel("FPS:"))
-        self.fps_spinner = QSpinBox()
-        self.fps_spinner.setMinimum(1)
-        self.fps_spinner.setMaximum(60)
-        self.fps_spinner.setValue(30)
-        fps_layout.addWidget(self.fps_spinner)
-        camera_layout.addLayout(fps_layout)
-
-        # Status indicator with meaningful progress
-        status_layout = QHBoxLayout()
-        self.status_label = QLabel("Ready")
-        self.status_label.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        )
-        status_layout.addWidget(self.status_label)
-
-        # Progress bar that actually shows the initialization progress
-        self.status_progress = QProgressBar()
-        self.status_progress.setMaximumHeight(15)
-        self.status_progress.setTextVisible(True)  # Changed to show percentage
-        self.status_progress.setRange(0, 100)
-        self.status_progress.setValue(0)
-        self.status_progress.setVisible(False)
-        status_layout.addWidget(self.status_progress)
-
-        camera_layout.addLayout(status_layout)
-
-        # Camera buttons
-        button_layout = QHBoxLayout()
-        self.start_camera_button = QPushButton("Start Camera")
-        self.stop_camera_button = QPushButton("Stop Camera")
-        self.stop_camera_button.setEnabled(False)
-        button_layout.addWidget(self.start_camera_button)
-        button_layout.addWidget(self.stop_camera_button)
-        camera_layout.addLayout(button_layout)
-
-        self.camera_group.setLayout(camera_layout)
-        self.layout.addWidget(self.camera_group)
-
-        # Create model selection group
-        self.model_group = QGroupBox("Model Selection")
-        model_layout = QVBoxLayout()
-
-        # Model selector
-        model_select_layout = QHBoxLayout()
-        model_select_layout.addWidget(QLabel("Model:"))
-        self.model_selector = QComboBox()
-        self.model_selector.setToolTip("Select a YOLO model for detection")
-        model_select_layout.addWidget(self.model_selector)
-
-        # Add refresh button for models
-        self.refresh_models_button = QPushButton("🔄")
-        self.refresh_models_button.setToolTip("Refresh model list")
-        self.refresh_models_button.setMaximumWidth(30)
-        model_select_layout.addWidget(self.refresh_models_button)
-
-        model_layout.addLayout(model_select_layout)
-
-        # Load model button
-        self.load_model_button = QPushButton("Load Selected Model")
-        model_layout.addWidget(self.load_model_button)
-
-        self.model_group.setLayout(model_layout)
-        self.layout.addWidget(self.model_group)
-
-        # Create detection controls group
-        self.detection_group = QGroupBox("Detection Controls")
-        detection_layout = QVBoxLayout()
-
-        # Enable detection checkbox
-        self.detection_checkbox = QCheckBox("Enable Detection")
-        self.detection_checkbox.setChecked(True)
-        detection_layout.addWidget(self.detection_checkbox)
-
-        # Enable tracking checkbox
-        self.tracking_checkbox = QCheckBox("Enable Tracking")
-        self.tracking_checkbox.setChecked(True)
-        detection_layout.addWidget(self.tracking_checkbox)
-
-        # Confidence threshold slider
-        conf_layout = QHBoxLayout()
-        conf_layout.addWidget(QLabel("Confidence:"))
-        self.conf_label = QLabel("0.25")
-        self.conf_slider = QSlider(Qt.Orientation.Horizontal)
-        self.conf_slider.setMinimum(1)
-        self.conf_slider.setMaximum(99)
-        self.conf_slider.setValue(25)
-        self.conf_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.conf_slider.setTickInterval(10)
-        conf_layout.addWidget(self.conf_slider)
-        conf_layout.addWidget(self.conf_label)
-        detection_layout.addLayout(conf_layout)
-
-        # IoU threshold slider
-        iou_layout = QHBoxLayout()
-        iou_layout.addWidget(QLabel("IoU:"))
-        self.iou_label = QLabel("0.45")
-        self.iou_slider = QSlider(Qt.Orientation.Horizontal)
-        self.iou_slider.setMinimum(1)
-        self.iou_slider.setMaximum(99)
-        self.iou_slider.setValue(45)
-        self.iou_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.iou_slider.setTickInterval(10)
-        iou_layout.addWidget(self.iou_slider)
-        iou_layout.addWidget(self.iou_label)
-        detection_layout.addLayout(iou_layout)
-
-        self.detection_group.setLayout(detection_layout)
-        self.layout.addWidget(self.detection_group)
-
-        # Set up the status animation timer
+        # Set up timer
         self.status_timer = QTimer(self)
         self.status_timer.timeout.connect(self._update_status_animation)
         self.status_animation_value = 0
@@ -197,21 +67,138 @@ class ControlsPanel(QWidget):
         # Connect signals
         self._connect_signals()
 
+    def _create_shared_controls(self):
+        """Create controls shared across all input types"""
+        # MODEL SELECTION
+        self.model_group = QGroupBox("Model Selection")
+        model_layout = QFormLayout()
+        model_layout.setVerticalSpacing(8)
+        model_layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Model selector with refresh button
+        model_select_widget = QWidget()
+        model_select_layout = QHBoxLayout(model_select_widget)
+        model_select_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.model_selector = QComboBox()
+        self.model_selector.setToolTip("Select a YOLO model for detection")
+
+        self.refresh_models_button = QPushButton("↻")
+        self.refresh_models_button.setToolTip("Refresh model list")
+        self.refresh_models_button.setProperty("iconOnly", True)
+        self.refresh_models_button.setProperty("secondary", True)
+
+        model_select_layout.addWidget(
+            self.model_selector, 1
+        )  # Give the combo box stretch priority
+        model_select_layout.addWidget(
+            self.refresh_models_button, 0
+        )  # No stretch for button
+
+        model_layout.addRow("Model:", model_select_widget)
+
+        # Load model button
+        button_container = QWidget()
+        button_container_layout = QHBoxLayout(button_container)
+        button_container_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.load_model_button = QPushButton("Load Selected Model")
+        self.load_model_button.setProperty("primary", True)  # Add this property
+        button_container_layout.addWidget(self.load_model_button)
+
+        # Center the button by spanning both columns
+        model_layout.addRow(button_container)
+
+        self.model_group.setLayout(model_layout)
+        self.layout.addWidget(self.model_group)
+
+        # DETECTION PARAMETERS
+        self.detection_group = QGroupBox("Detection Parameters")
+        detection_layout = QVBoxLayout()
+        detection_layout.setSpacing(8)
+
+        # Remove the checkboxes and directly use sliders in a form layout
+        slider_form = QFormLayout()
+        slider_form.setVerticalSpacing(5)
+        slider_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Confidence slider
+        conf_widget = QWidget()
+        conf_layout = QVBoxLayout(conf_widget)
+        conf_layout.setContentsMargins(0, 0, 0, 0)
+        conf_layout.setSpacing(2)
+
+        conf_display = QHBoxLayout()
+        self.conf_slider = QSlider(Qt.Orientation.Horizontal)
+        self.conf_slider.setMinimum(1)
+        self.conf_slider.setMaximum(99)
+        self.conf_slider.setValue(25)
+        self.conf_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.conf_slider.setTickInterval(10)
+
+        self.conf_label = QLabel("0.25")
+        self.conf_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.conf_label.setMinimumWidth(40)
+
+        conf_display.addWidget(self.conf_slider)
+        conf_display.addWidget(self.conf_label)
+        conf_layout.addLayout(conf_display)
+
+        slider_form.addRow("Confidence:", conf_widget)
+
+        # IoU slider
+        iou_widget = QWidget()
+        iou_layout = QVBoxLayout(iou_widget)
+        iou_layout.setContentsMargins(0, 0, 0, 0)
+        iou_layout.setSpacing(2)
+
+        iou_display = QHBoxLayout()
+        self.iou_slider = QSlider(Qt.Orientation.Horizontal)
+        self.iou_slider.setMinimum(1)
+        self.iou_slider.setMaximum(99)
+        self.iou_slider.setValue(45)
+        self.iou_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.iou_slider.setTickInterval(10)
+
+        self.iou_label = QLabel("0.45")
+        self.iou_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.iou_label.setMinimumWidth(40)
+
+        iou_display.addWidget(self.iou_slider)
+        iou_display.addWidget(self.iou_label)
+        iou_layout.addLayout(iou_display)
+
+        slider_form.addRow("IoU:", iou_widget)
+
+        detection_layout.addLayout(slider_form)
+
+        # Add a note about automatic detection and tracking
+        auto_note = QLabel("Detection and tracking are automatically enabled")
+        auto_note.setProperty("note", True)  # Use global note styling
+        auto_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        detection_layout.addWidget(auto_note)
+
+        self.detection_group.setLayout(detection_layout)
+        self.layout.addWidget(self.detection_group)
+
     def _connect_signals(self):
-        """Connect internal signals"""
-        self.start_camera_button.clicked.connect(self._on_start_camera)
-        self.stop_camera_button.clicked.connect(self._on_stop_camera)
-        self.refresh_camera_button.clicked.connect(self.camera_refresh_clicked)
-        self.detection_checkbox.toggled.connect(self.detection_toggled)
-        self.tracking_checkbox.toggled.connect(self.tracking_toggled)
+        """Connect all signals including tab changes"""
+        # Remove camera control signals since they're now in LiveCameraPanel
         self.conf_slider.valueChanged.connect(self._on_conf_changed)
         self.iou_slider.valueChanged.connect(self._on_iou_changed)
-        self.backend_selector.currentIndexChanged.connect(self._on_backend_changed)
 
         # Connect model selection signals
         self.model_selector.currentIndexChanged.connect(self._on_model_changed)
         self.load_model_button.clicked.connect(self._on_load_model_clicked)
         self.refresh_models_button.clicked.connect(self.refresh_models_clicked)
+
+        # Connect tab change signal
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+
+        # Connect panel signals
+        self.camera_panel.start_btn.clicked.connect(self.camera_start_clicked)
+        self.camera_panel.stop_btn.clicked.connect(self.camera_stop_clicked)
+        self.camera_panel.refresh_btn.clicked.connect(self.camera_refresh_clicked)
 
     def _on_start_camera(self):
         """Handle start camera button click"""
@@ -221,6 +208,10 @@ class ControlsPanel(QWidget):
         # Show the progress bar and start the animation
         self.status_progress.setVisible(True)
         self.status_timer.start(100)
+
+        # Automatically enable detection and tracking
+        self.detection_toggled.emit(True)
+        self.tracking_toggled.emit(True)
 
         self.camera_start_clicked.emit()
 
@@ -233,7 +224,11 @@ class ControlsPanel(QWidget):
         self.status_progress.setVisible(False)
         self.status_timer.stop()
 
+        # Emit the signal to stop the camera
         self.camera_stop_clicked.emit()
+
+        # Reset status
+        self.status_label.setText("Disconnected")
 
     def _on_conf_changed(self, value):
         """Handle confidence slider change"""
@@ -259,53 +254,43 @@ class ControlsPanel(QWidget):
 
     def set_camera_list(self, camera_infos):
         """Update camera selection combobox with available cameras"""
-        self.camera_selector.clear()
+        self.camera_panel.camera_selector.clear()
         if not camera_infos:
-            # Add fallback option if no cameras detected
-            self.camera_selector.addItem("Default Camera (0)", 0)
+            self.camera_panel.camera_selector.addItem("Default Camera (0)", 0)
         else:
             for camera_info in camera_infos:
-                self.camera_selector.addItem(camera_info.name, camera_info.id)
-
-        # Add IP/URL camera option
-        self.camera_selector.addItem("IP/URL Camera", -1)  # Special ID for URL camera
+                self.camera_panel.camera_selector.addItem(
+                    camera_info.name, camera_info.id
+                )
+        self.camera_panel.camera_selector.addItem("IP/URL Camera", -1)
 
     def set_status_message(self, message):
         """Update status message"""
-        self.status_label.setText(message)
+        self.camera_panel.status_label.setText(message)
 
     def set_connection_status(self, connected):
         """Update connection status UI"""
+        self.camera_panel.status_progress.setVisible(False)
         if connected:
-            # Camera is connected, show ready state
-            self.status_progress.setVisible(False)
-            self.status_timer.stop()
-            self.status_label.setText("Connected")
-            self.stop_camera_button.setEnabled(True)
-            self.start_camera_button.setEnabled(False)
+            self.camera_panel.status_label.setText("Connected")
+            self.camera_panel.stop_btn.setEnabled(True)
+            self.camera_panel.start_btn.setEnabled(False)
         else:
-            # Camera is disconnected
-            self.status_progress.setVisible(False)
-            self.status_timer.stop()
-            self.status_label.setText("Disconnected")
-            self.stop_camera_button.setEnabled(False)
-            self.start_camera_button.setEnabled(True)
+            self.camera_panel.status_label.setText("Disconnected")
+            self.camera_panel.stop_btn.setEnabled(False)
+            self.camera_panel.start_btn.setEnabled(True)
 
     def get_camera_id(self):
-        """Get selected camera ID"""
-        return self.camera_selector.currentData()
+        return self.camera_panel.camera_selector.currentData()
 
     def get_resolution(self):
-        """Get selected resolution"""
-        return self.resolution_selector.currentData()
+        return self.camera_panel.resolution_selector.currentData()
 
     def get_fps(self):
-        """Get selected FPS"""
-        return self.fps_spinner.value()
+        return self.camera_panel.fps_spinner.value()
 
     def get_backend(self):
-        """Get selected camera backend"""
-        return self.backend_selector.currentData()
+        return self.camera_panel.backend_selector.currentData()
 
     def _on_model_changed(self, index):
         """Handle model selection change"""
@@ -350,11 +335,17 @@ class ControlsPanel(QWidget):
         """Update connection progress"""
         if value == 0:
             # Hide if reset to zero
-            if not self.status_progress.isVisible():
+            if not self.camera_panel.status_progress.isVisible():
                 return
-        elif not self.status_progress.isVisible():
+        elif not self.camera_panel.status_progress.isVisible():
             # Show the progress bar when value > 0
-            self.status_progress.setVisible(True)
+            self.camera_panel.status_progress.setVisible(True)
 
         # Set the progress value
-        self.status_progress.setValue(value)
+        self.camera_panel.status_progress.setValue(value)
+
+    def _on_tab_changed(self, index):
+        """Handle tab changes"""
+        # Stop any running capture when switching tabs
+        if index != 0:  # If not on camera tab
+            self.camera_stop_clicked.emit()

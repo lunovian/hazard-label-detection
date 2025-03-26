@@ -1,1 +1,1 @@
-models\yolo8.pt
+models\yolov8.pt

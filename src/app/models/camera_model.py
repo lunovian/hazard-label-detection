@@ -3,7 +3,7 @@ import time
 import platform
 import logging
 import numpy as np
-from enum import Enum
+from enum import Enum, auto
 from PyQt6.QtCore import QObject, pyqtSignal, QThread, QMutex, QWaitCondition, QTimer
 from typing import Dict, List, Optional, Tuple, Union, Any
 import threading
@@ -16,14 +16,14 @@ logger = logging.getLogger("CameraModel")
 
 
 class CameraBackend(Enum):
-    """Enumeration of available camera backends"""
+    """Camera backend options based on platform"""
 
-    ANY = 0
-    VFW = 1  # Video for Windows
-    V4L = 2  # Video for Linux
-    DSHOW = 3  # DirectShow
-    MSMF = 4  # Microsoft Media Foundation
-    GSTREAMER = 5  # GStreamer
+    ANY = auto()
+    DSHOW = auto()  # Windows
+    MSMF = auto()  # Windows
+    V4L = auto()  # Linux
+    GSTREAMER = auto()  # Linux
+    AVFOUNDATION = auto()  # macOS
 
     @staticmethod
     def get_preferred_backend():
@@ -63,8 +63,9 @@ class CameraThread(QThread):
     progress_updated = pyqtSignal(int)  # 0-100 progress value
 
     # Constants for timeout control
-    CONNECT_TIMEOUT = 5.0  # seconds
-    FRAME_TIMEOUT = 0.5  # seconds
+    CONNECT_TIMEOUT = 10.0  # Increased from 5.0 to 10.0 seconds
+    FRAME_TIMEOUT = 2.0  # Increased from 0.5 to 2.0 seconds
+    MAX_FRAME_RETRIES = 3  # New constant for frame retry attempts
 
     def __init__(self, camera_id=0, resolution=(640, 480), fps=30, backend=None):
         super().__init__()
@@ -223,7 +224,7 @@ class CameraThread(QThread):
 
             # First frame - 40%
             self.timing["first_frame_start"] = time.time()
-            self.status_message.emit(f"Getting first frame...")
+            self.status_message.emit("Getting first frame...")
 
             # Set a frame timeout to prevent stalling
             frame_timer = threading.Timer(self.FRAME_TIMEOUT, self._frame_timeout)
@@ -297,36 +298,59 @@ class CameraThread(QThread):
     def _frame_timeout(self):
         """Handle frame read timeout"""
         logger.error("Frame read timeout")
-        self.force_stop = True
-        if self.cap:
-            self._release_camera()
+        # Don't force stop immediately, let retry mechanism handle it
+        if self.cap and not self.force_stop:
+            # Try to restart the camera capture
+            self.cap.release()
+            self.cap = cv2.VideoCapture(self.camera_id, self._get_backend_int())
 
     def _run_capture_loop(self):
         """Run the main frame capture loop"""
-        # Calculate desired frame interval for FPS control
         frame_interval = 1.0 / self.fps
         frame_count = 0
         error_count = 0
         last_frame_time = time.time()
+        frame_retry_count = 0
 
         while self.running and not self.force_stop:
             start_time = time.time()
 
-            # Check if camera is still open
             if not self.cap or not self.cap.isOpened():
+                logger.error("Camera disconnected")
                 self.error.emit("Camera disconnected")
                 break
 
-            # Read a frame with timeout
             try:
+                # Set a frame read timeout
+                frame_timer = threading.Timer(self.FRAME_TIMEOUT, self._frame_timeout)
+                frame_timer.daemon = True
+                frame_timer.start()
+
                 ret, frame = self.cap.read()
+                frame_timer.cancel()
+
                 if not ret:
+                    frame_retry_count += 1
                     error_count += 1
-                    if error_count > 5:  # Allow a few errors before giving up
-                        self.error.emit("Failed to capture frame repeatedly")
+                    logger.warning(
+                        f"Failed to read frame (attempt {frame_retry_count}/{self.MAX_FRAME_RETRIES})"
+                    )
+
+                    if frame_retry_count >= self.MAX_FRAME_RETRIES:
+                        logger.error("Maximum frame retry attempts reached")
+                        self.error.emit(
+                            "Failed to capture frame after multiple attempts"
+                        )
                         break
-                    time.sleep(0.1)  # Short delay before retry
+
+                    # Short delay before retry
+                    time.sleep(0.1)
                     continue
+
+                # Reset counters on successful frame read
+                frame_retry_count = 0
+                error_count = 0
+                frame_count += 1
 
                 # Calculate actual FPS
                 current_time = time.time()
@@ -337,20 +361,15 @@ class CameraThread(QThread):
                 )
                 last_frame_time = current_time
 
-                # Reset error count on successful capture
-                error_count = 0
-                frame_count += 1
-
-                # Emit the frame, converting to RGB first
+                # Convert and emit frame
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 self.frame_ready.emit(frame_rgb)
 
-                # Control FPS for performance - skip sleep for high FPS values
+                # FPS control
                 if self.fps < 30:
                     elapsed = time.time() - start_time
                     sleep_time = max(0, frame_interval - elapsed)
                     if sleep_time > 0:
-                        # Use wait condition for responsive sleep
                         self.mutex.lock()
                         self.condition.wait(self.mutex, int(sleep_time * 1000))
                         self.mutex.unlock()
@@ -359,7 +378,11 @@ class CameraThread(QThread):
                 logger.error(f"Error during frame capture: {str(e)}")
                 error_count += 1
                 if error_count > 5:
+                    self.error.emit(f"Persistent capture error: {str(e)}")
                     break
+
+                # Add small delay before retry
+                time.sleep(0.1)
 
     def _release_camera(self):
         """Helper method to safely release camera resources"""
@@ -744,16 +767,42 @@ class CameraModel(QObject):
             # Restart camera with new FPS
             self.start_camera()
 
-    def set_backend(self, backend: CameraBackend):
-        """Set camera backend"""
-        self.current_backend = backend
+    def set_backend(self, backend):
+        """Set camera backend based on platform availability"""
+        import platform
+
+        system = platform.system().lower()
+
+        if backend == CameraBackend.ANY:
+            self._backend = cv2.CAP_ANY
+        elif system == "windows":
+            if backend == CameraBackend.DSHOW:
+                self._backend = cv2.CAP_DSHOW
+            elif backend == CameraBackend.MSMF:
+                self._backend = cv2.CAP_MSMF
+            else:
+                self._backend = cv2.CAP_ANY
+        elif system == "linux":
+            if backend == CameraBackend.V4L:
+                self._backend = cv2.CAP_V4L2
+            elif backend == CameraBackend.GSTREAMER:
+                self._backend = cv2.CAP_GSTREAMER
+            else:
+                self._backend = cv2.CAP_ANY
+        elif system == "darwin":  # macOS
+            if backend == CameraBackend.AVFOUNDATION:
+                self._backend = cv2.CAP_AVFOUNDATION
+            else:
+                self._backend = cv2.CAP_ANY
+        else:
+            self._backend = cv2.CAP_ANY
+
         if self.camera_thread and self.camera_thread.isRunning():
             # Restart camera with new backend
             self.start_camera()
 
     def get_camera_properties(self, camera_id: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Get detailed properties of a specific camera
+        """Get detailed properties of a specific camera
         This will temporarily open the camera to query its properties
         """
         if camera_id is None:
@@ -790,7 +839,7 @@ class CameraModel(QObject):
             properties["gain"] = cap.get(cv2.CAP_PROP_GAIN)
             properties["exposure"] = cap.get(cv2.CAP_PROP_EXPOSURE)
 
-            # Try to get supported resolutions by trying some common values
+            # Try to get supported resolutions
             supported_resolutions = []
             for res in [(640, 480), (800, 600), (1280, 720), (1920, 1080)]:
                 if cap.set(cv2.CAP_PROP_FRAME_WIDTH, res[0]) and cap.set(

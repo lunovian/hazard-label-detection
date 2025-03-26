@@ -20,35 +20,46 @@ class ResultsTable(QWidget):
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(5, 5, 5, 5)
+        self.layout.setSpacing(8)
 
-        # Set to fixed size policy
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        self.setFixedHeight(350)  # Fixed height to prevent resizing
+        # Use a more flexible size policy
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # Create group box
+        # Create group box with better spacing
         self.group_box = QGroupBox("Detection Results")
+        self.group_box.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         group_layout = QVBoxLayout()
+        group_layout.setContentsMargins(8, 12, 8, 8)
+        group_layout.setSpacing(8)
 
-        # Create table widget
+        # Create table widget with better styling
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(
             ["ID", "Class", "Confidence", "Position", "Size"]
         )
 
-        # Set a fixed row count with a reasonable number of rows
+        # Disable alternating row colors
+        self.table.setAlternatingRowColors(False)
+
+        # Set a reasonable row count
         self.fixed_rows = 8
         self.table.setRowCount(self.fixed_rows)
 
-        # Fix row heights
+        # Set better row heights
         self.table.verticalHeader().setDefaultSectionSize(30)
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.table.verticalHeader().setVisible(
+            False
+        )  # Hide row numbers for cleaner look
 
-        # Make the table a fixed height
-        tableHeight = (
-            (self.fixed_rows * 30) + self.table.horizontalHeader().height() + 2
+        # Make the table expand with the window
+        self.table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        self.table.setFixedHeight(tableHeight)
 
         # Set column properties - make Class column wider
         self.table.horizontalHeader().setSectionResizeMode(
@@ -68,38 +79,24 @@ class ResultsTable(QWidget):
         )  # Size
 
         # Enable alternating row colors and row selection
-        self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
         # Add table to layout
         group_layout.addWidget(self.table)
 
-        # Add summary label with improved text wrapping
+        # Add summary label with improved styling
         self.summary_label = QLabel("No detections")
-        self.summary_label.setFixedHeight(40)  # Increased height for wrapping
-        self.summary_label.setWordWrap(True)  # Enable word wrapping
+        self.summary_label.setWordWrap(True)
         self.summary_label.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
+        self.summary_label.setMinimumHeight(36)
+        self.summary_label.setMaximumHeight(48)
+        self.summary_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
 
-        # Add specific style to control text behavior
-        self.summary_label.setStyleSheet("""
-            QLabel {
-                padding: 2px;
-                background-color: transparent;
-                text-overflow: ellipsis;
-            }
-        """)
-
-        # Create a container for the label with fixed width
-        summary_container = QWidget()
-        summary_container.setFixedHeight(44)  # Slightly larger than the label
-        summary_layout = QVBoxLayout(summary_container)
-        summary_layout.setContentsMargins(2, 2, 2, 2)
-        summary_layout.addWidget(self.summary_label)
-
-        group_layout.addWidget(summary_container)
-
+        group_layout.addWidget(self.summary_label)
         self.group_box.setLayout(group_layout)
         self.layout.addWidget(self.group_box)
 
@@ -156,7 +153,7 @@ class ResultsTable(QWidget):
             else:
                 class_counts[class_name] = 1
 
-            # Create table items
+            # Create table items with improved styling
             id_item = QTableWidgetItem(track_id)
             class_item = QTableWidgetItem(class_name)
             conf_item = QTableWidgetItem(f"{confidence:.2f}")
@@ -166,6 +163,16 @@ class ResultsTable(QWidget):
             # Center align all items
             for item in [id_item, class_item, conf_item, pos_item, size_item]:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            # Add a special style for high confidence items (> 0.7)
+            if confidence > 0.7:
+                conf_item.setForeground(QColor("#27ae60"))  # Success green
+                # Fix the font issue - don't try to get font from QFontMetrics
+                font = conf_item.font()
+                font.setBold(True)  # Make high confidence values bold
+                conf_item.setFont(font)
+            elif confidence < 0.4:
+                conf_item.setForeground(QColor("#e74c3c"))  # Warning red
 
             # Set row items
             self.table.setItem(i, 0, id_item)
@@ -224,15 +231,15 @@ class ResultsTable(QWidget):
                 self.table.setItem(row, col, QTableWidgetItem(""))
         self.summary_label.setText("No detections")
 
-    # Override size methods to ensure fixed height
+    # Modify size methods to allow vertical expansion
     def minimumSizeHint(self) -> QSize:
         """Return minimum size hint"""
-        return QSize(400, 350)
+        return QSize(350, 200)  # Smaller minimum to allow more flexibility
 
     def sizeHint(self) -> QSize:
         """Return size hint"""
-        return QSize(400, 350)
+        return QSize(450, 300)  # Preferred size, not fixed
 
     def maximumSize(self) -> QSize:
         """Return maximum size"""
-        return QSize(16777215, 350)  # Max width, fixed height
+        return QSize(16777215, 16777215)  # Max width, max height to allow expansion

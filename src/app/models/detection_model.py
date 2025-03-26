@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 from ..utils.model_utils import ModelManager
 import inspect
+import logging
 
 
 @dataclass
@@ -36,7 +37,10 @@ class DetectionModel:
         self.tracking_enabled = True
         self.annotator = None
         self.available_models = []
+        self.box_annotator = None
+        self.label_annotator = None
         self.refresh_available_models()
+        self.initialize_annotators()
 
         # Initialize supervision version compatibility helpers
         self._init_supervision_compatibility()
@@ -151,109 +155,106 @@ class DetectionModel:
         class_name = self.class_names[class_id]
         return f"{class_name} {confidence:.2f}"
 
-    def detect(self, frame: np.ndarray) -> DetectionResult:
-        """Run detection on a single frame"""
+    def initialize_annotators(self):
+        """Initialize annotators with consistent styling"""
+        try:
+            # Use the correct BoxAnnotator and LabelAnnotator classes
+            self.box_annotator = sv.BoxAnnotator(thickness=2)
+            self.label_annotator = sv.LabelAnnotator()
+        except Exception as e:
+            print(f"Error initializing annotators: {e}")
+            self.box_annotator = None
+            self.label_annotator = None
+
+    def detect(self, frame: np.ndarray, is_video: bool = False) -> DetectionResult:
+        """Run detection on a single frame
+        Args:
+            frame: Input frame
+            is_video: Whether this is part of a video/camera feed (for tracking)
+        """
         if self.model is None:
+            logging.error("No model loaded")
             return DetectionResult(frame=frame)
 
-        # Create a copy of the frame for processing
-        results = self.model(frame, conf=self.conf_threshold, iou=self.iou_threshold)[0]
+        try:
+            frame_copy = frame.copy()
+            results = self.model(
+                frame_copy, conf=self.conf_threshold, iou=self.iou_threshold
+            )[0]
+            logging.info(f"Detection results: {len(results.boxes)} boxes found")
 
-        # Convert YOLO results to supervision Detections
-        detections = sv.Detections.from_ultralytics(results)
+            # Convert YOLO results to supervision Detections
+            detections = sv.Detections.from_ultralytics(results)
+            logging.info(
+                f"Converted to supervision detections: {len(detections) if detections else 0} detections"
+            )
 
-        # Apply tracking if enabled
-        if self.tracking_enabled and detections and len(detections) > 0:
-            # Use the appropriate ByteTrack method based on the version
-            if self.byte_track_method == "update":
-                # Older API
-                detections = self.tracker.update(detections=detections, frame=frame)
-            elif self.byte_track_method == "update_with_detections":
-                # Current API
-                detections = self.tracker.update_with_detections(detections=detections)
-            else:
-                # Newer API with track_objects
-                detections = self.tracker.track_objects(
-                    detections=detections, frame=frame
-                )
-
-        # Annotate the frame
-        if detections and len(detections) > 0:
-            labels = [self._format_label(i, detections) for i in range(len(detections))]
-            try:
-                # Create a copy of the frame for annotation
-                annotated_frame = frame.copy()
-
-                # First draw all bounding boxes without labels
-                try:
-                    annotated_frame = self.annotator.annotate(
-                        scene=annotated_frame, detections=detections
+            # Only apply tracking if this is a video/camera feed
+            if (
+                is_video
+                and self.tracking_enabled
+                and detections
+                and len(detections) > 0
+            ):
+                if self.byte_track_method == "update_with_detections":
+                    detections = self.tracker.update_with_detections(
+                        detections=detections
                     )
-                except Exception as e:
-                    print(f"Box annotation error: {e}")
-                    # If box annotation fails, just use the original frame
+                    logging.info("Applied tracking with update_with_detections")
+                else:
+                    detections = self.tracker.update(
+                        detections=detections, frame=frame_copy
+                    )
+                    logging.info("Applied tracking with update")
 
-                # Then manually add labels to each box
-                for i, label in enumerate(labels):
-                    if i < len(detections.xyxy):
-                        # Get box coordinates
-                        box = detections.xyxy[i].astype(int)
-                        x1, y1, x2, y2 = box
+            # Create annotated frame regardless of detections
+            annotated_frame = frame_copy.copy()
 
-                        # Get color for this detection (by class or index)
-                        if (
-                            hasattr(detections, "class_id")
-                            and len(detections.class_id) > i
-                        ):
-                            color_idx = int(detections.class_id[i]) % len(
-                                self.label_colors
-                            )
-                        else:
-                            color_idx = i % len(self.label_colors)
+            # Always attempt to draw boxes and labels if we have detections
+            if detections is not None and len(detections) > 0:
+                try:
+                    logging.info(f"Preparing to annotate {len(detections)} detections")
 
-                        color = self.label_colors[color_idx]
-
-                        # Draw text background
-                        font = cv2.FONT_HERSHEY_SIMPLEX
-                        font_scale = 0.5
-                        thickness = 1
-                        (text_width, text_height), baseline = cv2.getTextSize(
-                            label, font, font_scale, thickness
+                    # Prepare labels
+                    labels = [
+                        f"{self.class_names[class_id]} {confidence:0.2f}"
+                        for class_id, confidence in zip(
+                            detections.class_id, detections.confidence
                         )
+                    ]
+                    logging.info(f"Created labels: {labels}")
 
-                        # Draw background rectangle for text
-                        cv2.rectangle(
-                            annotated_frame,
-                            (x1, y1 - text_height - 5),
-                            (x1 + text_width + 5, y1),
-                            color,  # Use same color as box
-                            -1,  # Filled rectangle
+                    # Draw boxes and labels
+                    if self.box_annotator:
+                        annotated_frame = self.box_annotator.annotate(
+                            scene=annotated_frame, detections=detections
                         )
+                        logging.info("Applied box annotations")
 
-                        # Draw text
-                        cv2.putText(
-                            annotated_frame,
-                            label,
-                            (x1, y1 - 5),
-                            font,
-                            font_scale,
-                            (255, 255, 255),  # White text
-                            thickness,
+                    if self.label_annotator:
+                        annotated_frame = self.label_annotator.annotate(
+                            scene=annotated_frame, detections=detections, labels=labels
                         )
+                        logging.info("Applied label annotations")
 
-            except Exception as e:
-                print(f"Annotation error: {e}")
-                # Fallback to original frame if annotation fails
-                annotated_frame = frame.copy()
-        else:
-            annotated_frame = frame.copy()
+                except Exception as annotation_error:
+                    logging.error(f"Annotation error: {str(annotation_error)}")
+                    logging.error(f"Detections data: {detections}")
+                    return DetectionResult(
+                        frame=frame, detections=detections, annotated_frame=frame_copy
+                    )
 
-        return DetectionResult(
-            frame=frame,
-            detections=detections,
-            annotated_frame=annotated_frame,
-            processing_time=results.speed.get("inference", 0),
-        )
+            # Always return a result with the annotated frame
+            return DetectionResult(
+                frame=frame,
+                detections=detections,
+                annotated_frame=annotated_frame,
+                processing_time=results.speed.get("inference", 0),
+            )
+
+        except Exception as e:
+            logging.error(f"Detection error: {str(e)}", exc_info=True)
+            return DetectionResult(frame=frame)
 
     def set_conf_threshold(self, value: float):
         """Set confidence threshold"""
